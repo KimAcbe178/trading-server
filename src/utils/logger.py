@@ -2,7 +2,7 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from pathlib import Path
-from config.env import EnvConfig
+from src.config.env import EnvConfig
 
 class CustomFormatter(logging.Formatter):
     """커스텀 로그 포매터"""

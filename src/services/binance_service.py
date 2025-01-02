@@ -1,16 +1,18 @@
-from binance.client import AsyncClient
+from binance.client import Client
 from binance.exceptions import BinanceAPIException
 from decimal import Decimal
-from typing import Optional, Dict, Any
-from config.env import EnvConfig
-from models.trading import Order, Position, OrderRequest
-from utils.exceptions import BinanceError
-from utils.logger import logger
+from typing import Optional, Dict, Any, List
+from src.config.env import EnvConfig
+from src.models.trading import Order, Position, OrderRequest
+from src.utils.exceptions import BinanceError
+from src.utils.logger import logger, LoggerMixin
 
-class BinanceService:
+class BinanceService(LoggerMixin):
     def __init__(self):
         self.client = None
         self._initialized = False
+        self.positions: Dict[str, Position] = {}
+        self.orders: Dict[str, List[Order]] = {}
 
     async def initialize(self):
         """바이낸스 클라이언트 초기화"""
@@ -18,184 +20,129 @@ class BinanceService:
             return
 
         try:
-            self.client = await AsyncClient.create(
+            self.client = Client(
                 api_key=EnvConfig.BINANCE_API_KEY,
                 api_secret=EnvConfig.BINANCE_API_SECRET,
-                testnet=EnvConfig.USE_TESTNET
+                testnet=False  # 실제 바이낸스 사용
             )
+            
+            # API 테스트
+            try:
+                # 선물 계정 정보 확인
+                account = self.client.futures_account()
+                self.logger.info("선물 계정 접근 권한 확인 완료")
+                self.logger.info(f"계정 정보: {account['totalWalletBalance']} USDT")
+                
+            except BinanceAPIException as e:
+                self.logger.error(f"API 테스트 실패 (code: {e.code}): {e.message}")
+                raise
+            
             self._initialized = True
-            logger.info("바이낸스 클라이언트 초기화 완료")
+            self.logger.info("바이낸스 클라이언트 초기화 완료")
             
         except Exception as e:
-            logger.error(f"바이낸스 클라이언트 초기화 실패: {e}")
-            raise BinanceError(str(e))
-
-    async def cleanup(self):
-        """리소스 정리"""
-        if self.client:
-            await self.client.close_connection()
-            self._initialized = False
-            logger.info("바이낸스 연결 종료")
+            self.logger.error(f"바이낸스 클라이언트 초기화 실패: {e}")
+            raise
 
     async def _ensure_initialized(self):
         """클라이언트 초기화 확인"""
         if not self._initialized:
             await self.initialize()
 
-    async def get_exchange_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
-        """거래소 정보 조회"""
+    async def update_positions(self):
+        """포지션 정보 업데이트"""
         await self._ensure_initialized()
+        
         try:
-            if symbol:
-                return await self.client.futures_exchange_info(symbol=symbol)
-            return await self.client.futures_exchange_info()
-        except BinanceAPIException as e:
-            logger.error(f"거래소 정보 조회 실패: {e}")
-            raise BinanceError(str(e))
-
-    async def get_mark_price(self, symbol: str) -> Decimal:
-        """마크 가격 조회"""
-        await self._ensure_initialized()
-        try:
-            price_data = await self.client.futures_mark_price(symbol=symbol)
-            return Decimal(str(price_data['markPrice']))
-        except BinanceAPIException as e:
-            logger.error(f"마크 가격 조회 실패: {e}")
-            raise BinanceError(str(e))
-
-    async def get_position(self, symbol: str) -> Optional[Position]:
-        """포지션 정보 조회"""
-        await self._ensure_initialized()
-        try:
-            positions = await self.client.futures_position_information(symbol=symbol)
-            position_data = positions[0] if positions else None
-            
-            if position_data and float(position_data['positionAmt']) != 0:
-                return Position.from_binance(position_data)
-            return None
+            positions = self.client.futures_position_information()
+            self.positions = {
+                p['symbol']: Position.from_binance(p)
+                for p in positions
+                if float(p['positionAmt']) != 0
+            }
+            self.logger.info(f"포지션 업데이트 완료: {len(self.positions)} 개의 활성 포지션")
             
         except BinanceAPIException as e:
-            logger.error(f"포지션 정보 조회 실패: {e}")
-            raise BinanceError(str(e))
+            self.logger.error(f"포지션 업데이트 실패: {e}")
+            raise BinanceError(f"포지션 업데이트 실패: {e}")
 
-    async def get_all_positions(self) -> list[Position]:
+    async def get_all_positions(self) -> List[Position]:
         """모든 포지션 조회"""
         await self._ensure_initialized()
+        await self.update_positions()
+        return list(self.positions.values())
+
+    async def get_position(self, symbol: str) -> Optional[Position]:
+        """특정 심볼의 포지션 조회"""
+        await self._ensure_initialized()
+        
         try:
-            positions = await self.client.futures_position_information()
-            return [
-                Position.from_binance(pos) 
-                for pos in positions 
-                if float(pos['positionAmt']) != 0
-            ]
+            positions = self.client.futures_position_information(symbol=symbol)
+            if positions and float(positions[0]['positionAmt']) != 0:
+                position = Position.from_binance(positions[0])
+                self.positions[symbol] = position
+                return position
+            return None
         except BinanceAPIException as e:
-            logger.error(f"포지션 조회 실패: {e}")
-            raise BinanceError(str(e))
+            self.logger.error(f"{symbol} 포지션 조회 실패: {e}")
+            raise BinanceError(f"{symbol} 포지션 조회 실패: {e}")
 
     async def place_order(self, order_request: OrderRequest) -> Order:
         """주문 실행"""
         await self._ensure_initialized()
+        
         try:
             # 레버리지 설정
-            await self.client.futures_change_leverage(
+            self.client.futures_change_leverage(
                 symbol=order_request.symbol,
                 leverage=order_request.leverage
             )
-            
-            # 기본 주문 파라미터
-            order_params = {
-                "symbol": order_request.symbol,
-                "side": order_request.side,
-                "type": "MARKET",
-                "quantity": float(order_request.quantity)
-            }
-            
+
             # 주문 실행
-            order_result = await self.client.futures_create_order(**order_params)
+            order = self.client.futures_create_order(
+                symbol=order_request.symbol,
+                side=order_request.side,
+                type='MARKET',
+                quantity=order_request.quantity
+            )
             
-            # 스탑로스/익절 주문 설정
-            if order_request.stop_loss or order_request.take_profit:
-                await self._set_sl_tp(
-                    symbol=order_request.symbol,
-                    side=order_request.side,
-                    quantity=order_request.quantity,
-                    stop_loss=order_request.stop_loss,
-                    take_profit=order_request.take_profit
-                )
+            # 주문 기록 업데이트
+            if order_request.symbol not in self.orders:
+                self.orders[order_request.symbol] = []
+            self.orders[order_request.symbol].append(Order.from_binance(order))
             
-            return Order.from_binance(order_result)
+            # 포지션 업데이트
+            await self.update_positions()
             
-        except BinanceAPIException as e:
-            logger.error(f"주문 실패: {e}")
-            raise BinanceError(str(e))
-
-    async def _set_sl_tp(
-        self, 
-        symbol: str, 
-        side: str, 
-        quantity: Decimal,
-        stop_loss: Optional[Decimal],
-        take_profit: Optional[Decimal]
-    ):
-        """스탑로스/익절 주문 설정"""
-        try:
-            current_price = await self.get_mark_price(symbol)
-            
-            if stop_loss:
-                sl_params = {
-                    "symbol": symbol,
-                    "side": "SELL" if side == "BUY" else "BUY",
-                    "type": "STOP_MARKET",
-                    "quantity": float(quantity),
-                    "stopPrice": float(current_price * (1 - stop_loss/100) 
-                                    if side == "BUY" 
-                                    else current_price * (1 + stop_loss/100))
-                }
-                await self.client.futures_create_order(**sl_params)
-            
-            if take_profit:
-                tp_params = {
-                    "symbol": symbol,
-                    "side": "SELL" if side == "BUY" else "BUY",
-                    "type": "TAKE_PROFIT_MARKET",
-                    "quantity": float(quantity),
-                    "stopPrice": float(current_price * (1 + take_profit/100) 
-                                    if side == "BUY" 
-                                    else current_price * (1 - take_profit/100))
-                }
-                await self.client.futures_create_order(**tp_params)
-                
-        except BinanceAPIException as e:
-            logger.error(f"SL/TP 설정 실패: {e}")
-            raise BinanceError(str(e))
-
-    async def close_position(self, symbol: str) -> Optional[Order]:
-        """포지션 청산"""
-        await self._ensure_initialized()
-        try:
-            position = await self.get_position(symbol)
-            if not position:
-                return None
-                
-            close_params = {
-                "symbol": symbol,
-                "side": "SELL" if position.side == "LONG" else "BUY",
-                "type": "MARKET",
-                "quantity": float(position.quantity)
-            }
-            
-            result = await self.client.futures_create_order(**close_params)
-            return Order.from_binance(result)
+            return Order.from_binance(order)
             
         except BinanceAPIException as e:
-            logger.error(f"포지션 청산 실패: {e}")
-            raise BinanceError(str(e))
+            self.logger.error(f"주문 실패: {e}")
+            raise BinanceError(f"주문 실패: {e}")
 
     async def cancel_all_orders(self, symbol: str):
-        """모든 대기 주문 취소"""
+        """모든 주문 취소"""
         await self._ensure_initialized()
+        
         try:
-            await self.client.futures_cancel_all_open_orders(symbol=symbol)
+            self.client.futures_cancel_all_open_orders(symbol=symbol)
+            if symbol in self.orders:
+                self.orders[symbol] = []
+            self.logger.info(f"{symbol} 모든 주문 취소 완료")
         except BinanceAPIException as e:
-            logger.error(f"주문 취소 실패: {e}")
-            raise BinanceError(str(e))
+            self.logger.error(f"주문 취소 실패: {e}")
+            raise BinanceError(f"주문 취소 실패: {e}")
+
+    async def get_order_history(self, symbol: str) -> List[Order]:
+        """주문 내역 조회"""
+        await self._ensure_initialized()
+        return self.orders.get(symbol, [])
+
+    async def cleanup(self):
+        """리소스 정리"""
+        if self.client:
+            self.client.close_connection()
+            self._initialized = False
+            self.positions.clear()
+            self.orders.clear()
+            self.logger.info("바이낸스 클라이언트 연결 종료")

@@ -1,8 +1,8 @@
 from fastapi import WebSocket
-from typing import Dict, Set
-from utils.logger import logger
+from typing import List, Set, Dict  # Set 추가
+from src.utils.logger import logger
 
-class WebSocketManager:
+class WebsocketManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = {}
 
