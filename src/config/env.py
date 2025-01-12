@@ -16,10 +16,13 @@ class EnvConfig:
     SERVER_HOST = os.getenv('SERVER_HOST', '0.0.0.0')
     SERVER_PORT = int(os.getenv('SERVER_PORT', '8000'))
     
+    # CORS 설정
+    CORS_ORIGINS = os.getenv('CORS_ORIGINS', '*').split(',')
+    
     # 바이낸스 API 설정
     BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
     BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET')
-    USE_TESTNET = os.getenv('USE_TESTNET', 'False').lower() == 'true'  # 기본값을 False로 변경
+    USE_TESTNET = os.getenv('USE_TESTNET', 'False').lower() == 'true'
     
     # 데이터베이스 설정
     DB_URL = os.getenv('DB_URL', 'sqlite:///./trading.db')
@@ -36,7 +39,7 @@ class EnvConfig:
     
     # 텔레그램 설정
     TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-    TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')  # 단일 채팅 ID 추가
+    TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
     TELEGRAM_CHAT_IDS = os.getenv('TELEGRAM_CHAT_IDS', '').split(',') if os.getenv('TELEGRAM_CHAT_IDS') else []
     
     # 거래 설정
@@ -53,7 +56,6 @@ class EnvConfig:
             ('BINANCE_API_SECRET', cls.BINANCE_API_SECRET),
         ]
         
-        # 텔레그램 설정이 있는 경우 추가 검증
         if cls.TELEGRAM_BOT_TOKEN:
             required_vars.append(('TELEGRAM_CHAT_ID', cls.TELEGRAM_CHAT_ID))
         
