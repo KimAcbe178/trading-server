@@ -4,7 +4,7 @@ from binance.client import Client
 from binance.exceptions import BinanceAPIException
 from src.utils.logger import logger
 from src.models.trading import OrderRequest
-from src.config import settings
+from src.config.env import settings
 
 class BinanceService:
     def __init__(self):
