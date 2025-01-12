@@ -1,168 +1,132 @@
-from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+import sys
+from pathlib import Path
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.models.trading import OrderRequest, Position
-from src.services.binance_service import BinanceService
-from src.services.notification_service import NotificationService
+from prometheus_fastapi_instrumentator import Instrumentator
+
+# 프로젝트 루트 경로 추가
+project_root = Path(__file__).parent.parent
+sys.path.append(str(project_root))
+
+from src.api.routes import router as api_router
+from src.api.websocket import router as ws_router
+from src.api.webhooks import router as webhook_router
+from src.config.env import EnvConfig
 from src.services.settings_service import SettingsService
-from src.services.websocket_manager import WebsocketManager
-from src.utils.logger import logger, LoggerMixin
-from src.utils.metrics import metrics
-import psutil
-import asyncio
-from typing import List
+from src.services.binance_service import BinanceService
+from src.services.trading_service import TradingService
+from src.services.websocket_manager import WebSocketManager
+from src.utils.logger import logger
+from src.utils.metrics import setup_metrics
+from src.utils.exceptions import setup_exception_handlers
 
 # FastAPI 앱 초기화
 app = FastAPI(
-    title="Trading Server API",
-    description="Binance Futures Trading Server",
+    title="WUYA Trading Server",
+    description="암호화폐 자동 거래 서버",
     version="1.0.0"
 )
 
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=EnvConfig.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# API 라우터 설정
-api_router = APIRouter(prefix="/api/v1")
-
-# 서비스 인스턴스 초기화
-binance_service = BinanceService()
-notification_service = NotificationService()
+# 서비스 초기화
 settings_service = SettingsService()
-websocket_manager = WebsocketManager()
+binance_service = BinanceService(settings_service)
+trading_service = TradingService(binance_service)
+websocket_manager = WebSocketManager()
 
-# 메트릭스 설정
-metrics.setup_fastapi_metrics(app)
-
-@api_router.get("/health")
-async def health_check():
-    """서버 상태 확인"""
-    return {"status": "healthy"}
-
-@api_router.get("/positions")
-async def get_positions():
-    """모든 포지션 조회"""
-    try:
-        positions = await binance_service.get_all_positions()
-        return {"positions": positions}
-    except Exception as e:
-        logger.error(f"포지션 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/positions/{symbol}")
-async def get_position(symbol: str):
-    """특정 심볼의 포지션 조회"""
-    try:
-        position = await binance_service.get_position(symbol)
-        return {"position": position}
-    except Exception as e:
-        logger.error(f"{symbol} 포지션 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.post("/orders")
-async def create_order(order_request: OrderRequest):
-    """주문 생성"""
-    try:
-        order = await binance_service.place_order(order_request)
-        await notification_service.send_trade_notification(
-            symbol=order.symbol,
-            side=order.side,
-            quantity=order.quantity,
-            price=order.price
-        )
-        return {"order": order}
-    except Exception as e:
-        logger.error(f"주문 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.delete("/orders/{symbol}")
-async def cancel_orders(symbol: str):
-    """주문 취소"""
-    try:
-        await binance_service.cancel_all_orders(symbol)
-        return {"message": f"{symbol} 모든 주문 취소 완료"}
-    except Exception as e:
-        logger.error(f"주문 취소 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/settings")
-async def get_settings():
-    """설정 조회"""
-    try:
-        settings = await settings_service.get_settings()
-        return settings
-    except Exception as e:
-        logger.error(f"설정 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.post("/settings")
-async def update_settings(settings: dict):
-    """설정 업데이트"""
-    try:
-        updated = await settings_service.update_settings(settings)
-        return {"message": "설정 업데이트 완료", "settings": updated}
-    except Exception as e:
-        logger.error(f"설정 업데이트 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """웹소켓 엔드포인트"""
-    await websocket.accept()
-    await websocket_manager.connect(websocket)
-    try:
-        while True:
-            try:
-                data = await websocket.receive_json()
-                # 메시지 타입에 따른 처리
-                if data.get("type") == "subscribe":
-                    symbols = data.get("symbols", [])
-                    await websocket_manager.subscribe(websocket, symbols)
-                elif data.get("type") == "unsubscribe":
-                    symbols = data.get("symbols", [])
-                    await websocket_manager.unsubscribe(websocket, symbols)
-                
-                # 클라이언트에 응답
-                await websocket.send_json({
-                    "type": "response",
-                    "status": "success",
-                    "message": f"Received: {data}"
-                })
-            except WebSocketDisconnect:
-                await websocket_manager.disconnect(websocket)
-                break
-            except Exception as e:
-                logger.error(f"웹소켓 메시지 처리 에러: {e}")
-                await websocket.send_json({
-                    "type": "error",
-                    "message": str(e)
-                })
-    except Exception as e:
-        logger.error(f"웹소켓 연결 에러: {e}")
-    finally:
-        await websocket_manager.disconnect(websocket)
-
-# 라우터 등록
-app.include_router(api_router)
+# 전역 서비스 의존성 설정
+app.state.settings = settings_service
+app.state.binance = binance_service
+app.state.trading = trading_service
+app.state.ws_manager = websocket_manager
 
 @app.on_event("startup")
 async def startup_event():
-    """서버 시작 이벤트"""
-    logger.info("서버 시작")
-    await binance_service.initialize()
-    await notification_service.initialize()
-    await settings_service.initialize()
+    """서버 시작 시 초기화"""
+    try:
+        logger.info("서버 시작 중...")
+        
+        # 설정 로드
+        await settings_service.load_settings()
+        
+        # Binance 연결 초기화
+        await binance_service.initialize()
+        
+        # 메트릭 설정
+        setup_metrics(app)
+        
+        # Prometheus 메트릭 설정
+        Instrumentator().instrument(app).expose(app)
+        
+        logger.info("서버 초기화 완료")
+        
+    except Exception as e:
+        logger.error(f"서버 시작 중 오류 발생: {e}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """서버 종료 이벤트"""
-    logger.info("서버 종료")
-    await binance_service.cleanup()
-    await notification_service.cleanup()
-    await settings_service.cleanup()
-    await websocket_manager.cleanup()
+    """서버 종료 시 정리"""
+    try:
+        logger.info("서버 종료 중...")
+        
+        # WebSocket 연결 정리
+        await websocket_manager.close_all_connections()
+        
+        # Binance 연결 종료
+        await binance_service.cleanup()
+        
+        # 설정 저장
+        await settings_service.save_settings()
+        
+        logger.info("서버 정상 종료됨")
+        
+    except Exception as e:
+        logger.error(f"서버 종료 중 오류 발생: {e}")
+
+# 라우터 등록
+app.include_router(api_router, prefix="/api")
+app.include_router(ws_router, prefix="/ws")
+app.include_router(webhook_router, prefix="/webhooks")
+
+# 예외 핸들러 설정
+setup_exception_handlers(app)
+
+@app.get("/health")
+async def health_check():
+    """서버 상태 확인"""
+    return {
+        "status": "healthy",
+        "binance_connected": binance_service.is_connected(),
+        "active_websockets": websocket_manager.get_connection_count(),
+        "trading_enabled": trading_service.is_trading_enabled()
+    }
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus 메트릭"""
+    return {
+        "websocket_connections": websocket_manager.get_connection_count(),
+        "active_trades": trading_service.get_active_trades_count(),
+        "binance_api_calls": binance_service.get_api_call_count()
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    # 개발 서버 설정
+    uvicorn.run(
+        "main:app",
+        host=EnvConfig.HOST,
+        port=EnvConfig.PORT,
+        reload=EnvConfig.DEBUG,
+        log_level="info"
+    )
