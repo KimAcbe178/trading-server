@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_fastapi_instrumentator import Instrumentator
 
 # 프로젝트 루트 경로 추가
 project_root = Path(__file__).parent.parent
@@ -17,8 +16,7 @@ from src.services.binance_service import BinanceService
 from src.services.trading_service import TradingService
 from src.services.websocket_manager import WebSocketManager
 from src.utils.logger import logger
-from src.utils.metrics import setup_metrics
-from src.utils.exceptions import setup_exception_handlers
+from src.utils.metrics import MetricsManager
 
 # FastAPI 앱 초기화
 app = FastAPI(
@@ -41,12 +39,14 @@ settings_service = SettingsService()
 binance_service = BinanceService(settings_service)
 trading_service = TradingService(binance_service)
 websocket_manager = WebSocketManager()
+metrics_manager = MetricsManager()
 
 # 전역 서비스 의존성 설정
 app.state.settings = settings_service
 app.state.binance = binance_service
 app.state.trading = trading_service
 app.state.ws_manager = websocket_manager
+app.state.metrics = metrics_manager
 
 @app.on_event("startup")
 async def startup_event():
@@ -61,10 +61,10 @@ async def startup_event():
         await binance_service.initialize()
         
         # 메트릭 설정
-        setup_metrics(app)
+        metrics_manager.setup_fastapi_metrics(app)
         
-        # Prometheus 메트릭 설정
-        Instrumentator().instrument(app).expose(app)
+        # WebSocket 매니저 초기화
+        await websocket_manager.initialize()
         
         logger.info("서버 초기화 완료")
         
@@ -79,7 +79,7 @@ async def shutdown_event():
         logger.info("서버 종료 중...")
         
         # WebSocket 연결 정리
-        await websocket_manager.close_all_connections()
+        await websocket_manager.cleanup()
         
         # Binance 연결 종료
         await binance_service.cleanup()
@@ -97,26 +97,40 @@ app.include_router(api_router, prefix="/api")
 app.include_router(ws_router, prefix="/ws")
 app.include_router(webhook_router, prefix="/webhooks")
 
-# 예외 핸들러 설정
-setup_exception_handlers(app)
-
 @app.get("/health")
 async def health_check():
     """서버 상태 확인"""
     return {
         "status": "healthy",
         "binance_connected": binance_service.is_connected(),
-        "active_websockets": websocket_manager.get_connection_count(),
-        "trading_enabled": trading_service.is_trading_enabled()
+        "active_websockets": websocket_manager.get_active_connections(),
+        "trading_enabled": trading_service.is_enabled(),
+        "memory_usage": metrics_manager.memory_usage._value.get()
     }
 
 @app.get("/metrics")
 async def metrics():
     """Prometheus 메트릭"""
     return {
-        "websocket_connections": websocket_manager.get_connection_count(),
-        "active_trades": trading_service.get_active_trades_count(),
-        "binance_api_calls": binance_service.get_api_call_count()
+        "websocket_connections": metrics_manager.active_connections._value.get(),
+        "orders": {
+            "total": metrics_manager.order_counter._value.get(),
+            "by_symbol": {
+                symbol: count for symbol, count in 
+                metrics_manager.order_counter.collect()[0].samples
+            }
+        },
+        "positions": {
+            symbol: value for symbol, value in 
+            metrics_manager.position_gauge.collect()[0].samples
+        },
+        "pnl": {
+            symbol: value for symbol, value in 
+            metrics_manager.pnl_gauge.collect()[0].samples
+        },
+        "api_latency": metrics_manager.api_latency._value.get(),
+        "binance_requests": metrics_manager.binance_requests._value.get(),
+        "memory_usage": metrics_manager.memory_usage._value.get()
     }
 
 if __name__ == "__main__":
