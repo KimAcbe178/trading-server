@@ -39,17 +39,14 @@ class BinanceService:
         """현재 포지션 조회"""
         try:
             positions = self.client.futures_position_information()
-            leverage_info = self.client.futures_leverage_bracket()  # 레버리지 정보 조회
-            
-            # 레버리지 정보를 심볼별로 매핑
-            leverage_map = {item['symbol']: item['leverage'] for item in leverage_info}
-            
             active_positions = []
+            
             for pos in positions:
                 if float(pos["positionAmt"]) != 0:
                     try:
-                        notional = abs(float(pos.get("notional", 0)))
-                        isolated_margin = float(pos.get("isolatedMargin", 0))
+                        # 레버리지 정보 직접 조회
+                        symbol_leverage = self.client.futures_position_information(symbol=pos["symbol"])
+                        leverage = int(symbol_leverage[0].get("leverage", 10))  # 기본값 10
                         
                         position_info = {
                             "symbol": pos["symbol"],
@@ -58,10 +55,10 @@ class BinanceService:
                             "markPrice": float(pos["markPrice"]),
                             "unrealizedProfit": float(pos["unRealizedProfit"]),
                             "liquidationPrice": float(pos.get("liquidationPrice", 0)),
-                            "notional": notional,
-                            "isolatedMargin": isolated_margin,
+                            "notional": abs(float(pos.get("notional", 0))),
+                            "isolatedMargin": float(pos.get("isolatedMargin", 0)),
                             "marginAsset": pos.get("marginAsset", "USDT"),
-                            "leverage": leverage_map.get(pos["symbol"], 10),  # 기본값 10
+                            "leverage": leverage,
                             "positionSide": pos.get("positionSide", "BOTH")
                         }
                         
@@ -69,14 +66,6 @@ class BinanceService:
                     except (KeyError, ValueError) as e:
                         logger.error(f"포지션 데이터 처리 실패: {e}, 데이터: {pos}")
                         continue
-            
-            return active_positions
-        except BinanceAPIException as e:
-            logger.error(f"바이낸스 API 오류: {e}")
-            raise HTTPException(status_code=e.status_code, detail=str(e))
-        except Exception as e:
-            logger.error(f"포지션 조회 실패: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
             
             return active_positions
         except BinanceAPIException as e:
