@@ -16,6 +16,7 @@ from src.services.settings_service import SettingsService
 from src.services.binance_service import BinanceService
 from src.services.trading_service import TradingService
 from src.services.websocket_manager import WebSocketManager
+from src.services.notification_service import NotificationService
 from src.utils.logger import logger
 from src.utils.metrics import metrics_manager
 
@@ -24,6 +25,7 @@ settings_service = SettingsService()
 binance_service = BinanceService()
 trading_service = TradingService(settings_service, binance_service)
 websocket_manager = WebSocketManager()
+notification_service = NotificationService()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,12 +35,16 @@ async def lifespan(app: FastAPI):
         logger.info("서버 시작 중...")
         await settings_service._load_settings()
         await binance_service.initialize()
+        await notification_service.initialize()
+        await notification_service.send_message("🚀 트레이딩 서버가 시작되었습니다.")
         logger.info("서버 초기화 완료")
         yield
     finally:
         # Shutdown
         logger.info("서버 종료 중...")
+        await notification_service.send_message("🔴 트레이딩 서버가 종료되었습니다.")
         await binance_service.cleanup()
+        await notification_service.cleanup()
         await settings_service._save_settings()
         logger.info("서버 정상 종료됨")
 
@@ -68,6 +74,7 @@ app.state.binance = binance_service
 app.state.trading = trading_service
 app.state.ws_manager = websocket_manager
 app.state.metrics = metrics_manager
+app.state.notification = notification_service
 
 # 라우터 등록
 app.include_router(api_router, prefix="/api")
