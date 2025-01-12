@@ -4,14 +4,14 @@ from binance.client import Client
 from binance.exceptions import BinanceAPIException
 from src.utils.logger import logger
 from src.models.trading import OrderRequest
-from src.config.env import settings
+from src.config.env import EnvConfig
 
 class BinanceService:
     def __init__(self):
         self.client = None
-        self.testnet = settings.USE_TESTNET
-        self.api_key = settings.BINANCE_API_KEY
-        self.api_secret = settings.BINANCE_API_SECRET
+        self.testnet = EnvConfig.USE_TESTNET
+        self.api_key = EnvConfig.BINANCE_API_KEY
+        self.api_secret = EnvConfig.BINANCE_API_SECRET
 
     async def initialize(self):
         """바이낸스 클라이언트 초기화"""
