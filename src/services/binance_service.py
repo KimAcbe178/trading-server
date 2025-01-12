@@ -43,18 +43,23 @@ class BinanceService:
             
             for pos in positions:
                 if float(pos["positionAmt"]) != 0:
-                    position_info = {
-                        "symbol": pos["symbol"],
-                        "positionAmt": float(pos["positionAmt"]),
-                        "entryPrice": float(pos["entryPrice"]),
-                        "unrealizedProfit": float(pos["unRealizedProfit"]),
-                        "marginType": pos["marginType"],
-                        "isolatedMargin": float(pos["isolatedMargin"]) if pos["marginType"] == "isolated" else None,
-                        "leverage": int(pos["leverage"]),
-                        "liquidationPrice": float(pos["liquidationPrice"]),
-                        "markPrice": float(pos["markPrice"])
-                    }
-                    active_positions.append(position_info)
+                    try:
+                        position_info = {
+                            "symbol": pos["symbol"],
+                            "positionAmt": float(pos["positionAmt"]),
+                            "entryPrice": float(pos["entryPrice"]),
+                            "unrealizedProfit": float(pos["unRealizedProfit"]),
+                            "leverage": int(pos["leverage"]),
+                            "liquidationPrice": float(pos.get("liquidationPrice", 0)),
+                            "markPrice": float(pos.get("markPrice", 0)),
+                            "positionSide": pos.get("positionSide", "BOTH"),  # 포지션 방향
+                            "isolated": pos.get("isolated", False)  # isolated/cross 여부
+                        }
+                        
+                        active_positions.append(position_info)
+                    except (KeyError, ValueError) as e:
+                        logger.error(f"포지션 데이터 처리 실패: {e}, 데이터: {pos}")
+                        continue
             
             return active_positions
         except BinanceAPIException as e:
