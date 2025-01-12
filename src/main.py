@@ -16,7 +16,7 @@ from src.services.binance_service import BinanceService
 from src.services.trading_service import TradingService
 from src.services.websocket_manager import WebSocketManager
 from src.utils.logger import logger
-from src.utils.metrics import MetricsManager
+from src.utils.metrics import metrics_manager  # 전역 인스턴스 사용
 
 # FastAPI 앱 초기화
 app = FastAPI(
@@ -36,10 +36,9 @@ app.add_middleware(
 
 # 서비스 초기화
 settings_service = SettingsService()
-binance_service = BinanceService()  # settings_service 인자 제거
-trading_service = TradingService(settings_service, binance_service)  # 이 부분은 유지
+binance_service = BinanceService()
+trading_service = TradingService(settings_service, binance_service)
 websocket_manager = WebSocketManager()
-metrics_manager = MetricsManager()
 
 # 전역 서비스 의존성 설정
 app.state.settings = settings_service

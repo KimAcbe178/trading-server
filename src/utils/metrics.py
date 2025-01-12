@@ -52,4 +52,5 @@ class MetricsManager:
         """FastAPI 메트릭 설정"""
         Instrumentator().instrument(app).expose(app)
 
-metrics = MetricsManager()
+# 전역 인스턴스 생성
+metrics_manager = MetricsManager()
