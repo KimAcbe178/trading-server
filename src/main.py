@@ -36,8 +36,8 @@ app.add_middleware(
 
 # 서비스 초기화
 settings_service = SettingsService()
-binance_service = BinanceService(settings_service)  # settings_service 인자 추가
-trading_service = TradingService(settings_service, binance_service)  # settings_service 인자 추가
+binance_service = BinanceService()  # settings_service 인자 제거
+trading_service = TradingService(settings_service, binance_service)  # 이 부분은 유지
 websocket_manager = WebSocketManager()
 metrics_manager = MetricsManager()
 
