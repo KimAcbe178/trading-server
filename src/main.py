@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,13 +17,39 @@ from src.services.binance_service import BinanceService
 from src.services.trading_service import TradingService
 from src.services.websocket_manager import WebSocketManager
 from src.utils.logger import logger
-from src.utils.metrics import metrics_manager  # 전역 인스턴스 사용
+from src.utils.metrics import metrics_manager
+
+# 서비스 초기화
+settings_service = SettingsService()
+binance_service = BinanceService()
+trading_service = TradingService(settings_service, binance_service)
+websocket_manager = WebSocketManager()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """애플리케이션 생명주기 관리"""
+    try:
+        # Startup
+        logger.info("서버 시작 중...")
+        await settings_service._load_settings()
+        await binance_service.initialize()
+        await websocket_manager.initialize()
+        logger.info("서버 초기화 완료")
+        yield
+    finally:
+        # Shutdown
+        logger.info("서버 종료 중...")
+        await websocket_manager.cleanup()
+        await binance_service.cleanup()
+        await settings_service._save_settings()
+        logger.info("서버 정상 종료됨")
 
 # FastAPI 앱 초기화
 app = FastAPI(
     title="WUYA Trading Server",
     description="암호화폐 자동 거래 서버",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS 설정
@@ -34,11 +61,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 서비스 초기화
-settings_service = SettingsService()
-binance_service = BinanceService()
-trading_service = TradingService(settings_service, binance_service)
-websocket_manager = WebSocketManager()
+# 메트릭 설정
+metrics_manager.setup_fastapi_metrics(app)
 
 # 전역 서비스 의존성 설정
 app.state.settings = settings_service
@@ -46,50 +70,6 @@ app.state.binance = binance_service
 app.state.trading = trading_service
 app.state.ws_manager = websocket_manager
 app.state.metrics = metrics_manager
-
-@app.on_event("startup")
-async def startup_event():
-    """서버 시작 시 초기화"""
-    try:
-        logger.info("서버 시작 중...")
-        
-        # 설정 로드 (메서드 이름 수정)
-        await settings_service._load_settings()  # load_settings를 _load_settings로 변경
-        
-        # Binance 연결 초기화
-        await binance_service.initialize()
-        
-        # 메트릭 설정
-        metrics_manager.setup_fastapi_metrics(app)
-        
-        # WebSocket 매니저 초기화
-        await websocket_manager.initialize()
-        
-        logger.info("서버 초기화 완료")
-        
-    except Exception as e:
-        logger.error(f"서버 시작 중 오류 발생: {e}")
-        raise
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """서버 종료 시 정리"""
-    try:
-        logger.info("서버 종료 중...")
-        
-        # WebSocket 연결 정리
-        await websocket_manager.cleanup()
-        
-        # Binance 연결 종료
-        await binance_service.cleanup()
-        
-        # 설정 저장 (메서드 이름 수정)
-        await settings_service._save_settings()  # save_settings를 _save_settings로 변경
-        
-        logger.info("서버 정상 종료됨")
-        
-    except Exception as e:
-        logger.error(f"서버 종료 중 오류 발생: {e}")
 
 # 라우터 등록
 app.include_router(api_router, prefix="/api")
