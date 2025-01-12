@@ -36,7 +36,7 @@ app.add_middleware(
 
 # 서비스 초기화
 settings_service = SettingsService()
-binance_service = BinanceService(settings_service)
+binance_service = BinanceService()  # 인자 제거
 trading_service = TradingService(binance_service)
 websocket_manager = WebSocketManager()
 metrics_manager = MetricsManager()
@@ -139,8 +139,8 @@ if __name__ == "__main__":
     # 개발 서버 설정
     uvicorn.run(
         "main:app",
-        host=EnvConfig.HOST,
-        port=EnvConfig.PORT,
+        host=EnvConfig.SERVER_HOST,
+        port=EnvConfig.SERVER_PORT,
         reload=EnvConfig.DEBUG,
         log_level="info"
     )
