@@ -56,15 +56,24 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS 설정
+# CORS 설정 수정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=EnvConfig.CORS_ORIGINS,
+    allow_origins=["*"],  # 개발 중에는 모든 origin 허용
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# WebSocket 라우터에 대한 CORS 설정도 추가
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 # 메트릭 설정
 metrics_manager.setup_fastapi_metrics(app)
 
