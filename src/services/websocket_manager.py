@@ -1,5 +1,5 @@
 from fastapi import WebSocket
-from typing import List, Set, Dict  # Set 추가
+from typing import List, Set, Dict
 from src.utils.logger import logger
 
 class WebsocketManager:
@@ -53,3 +53,7 @@ class WebsocketManager:
             self.active_connections[symbol].clear()
         self.active_connections.clear()
         logger.info("모든 WebSocket 연결 종료")
+
+    async def cleanup(self):
+        """서버 종료 시 정리"""
+        await self.close_all()
