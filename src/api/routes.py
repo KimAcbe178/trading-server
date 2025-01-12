@@ -18,7 +18,7 @@ async def health_check():
 async def get_positions():
     """현재 포지션 조회"""
     try:
-        positions = await binance_service.get_positions()
+        positions = await binance_service.get_all_positions()  # get_positions -> get_all_positions
         return positions
     except Exception as e:
         logger.error(f"포지션 조회 실패: {e}")

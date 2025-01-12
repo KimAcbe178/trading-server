@@ -35,7 +35,7 @@ class BinanceService:
         except Exception as e:
             logger.error(f"바이낸스 클라이언트 정리 실패: {e}")
 
-    async def get_positions(self) -> List[dict]:
+    async def get_all_positions(self) -> List[dict]:
         """현재 포지션 조회"""
         try:
             positions = self.client.futures_position_information()
