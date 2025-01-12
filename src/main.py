@@ -57,23 +57,31 @@ app = FastAPI(
 )
 
 # CORS 설정 수정
+origins = [
+    "http://localhost",
+    "http://localhost:80",
+    "http://127.0.0.1",
+    "http://127.0.0.1:80",
+    "http://158.247.207.58",
+    "ws://158.247.207.58",
+    "wss://158.247.207.58",
+    "*"  # 개발 중에는 모든 origin 허용
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 개발 중에는 모든 origin 허용
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
-# WebSocket 라우터에 대한 CORS 설정도 추가
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
+# WebSocket 라우터를 먼저 등록
+app.include_router(ws_router)  # WebSocket 라우터를 먼저 등록
+app.include_router(api_router, prefix="/api")
+app.include_router(webhook_router, prefix="/webhooks")
+
 # 메트릭 설정
 metrics_manager.setup_fastapi_metrics(app)
 
