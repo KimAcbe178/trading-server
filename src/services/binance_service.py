@@ -44,16 +44,23 @@ class BinanceService:
             for pos in positions:
                 if float(pos["positionAmt"]) != 0:
                     try:
+                        # 레버리지 계산: notional / isolatedMargin
+                        notional = abs(float(pos.get("notional", 0)))
+                        isolated_margin = float(pos.get("isolatedMargin", 0))
+                        leverage = round(notional / isolated_margin) if isolated_margin > 0 else 10  # 기본값 10
+                        
                         position_info = {
                             "symbol": pos["symbol"],
                             "positionAmt": float(pos["positionAmt"]),
                             "entryPrice": float(pos["entryPrice"]),
+                            "markPrice": float(pos["markPrice"]),
                             "unrealizedProfit": float(pos["unRealizedProfit"]),
-                            "leverage": int(pos["leverage"]),
                             "liquidationPrice": float(pos.get("liquidationPrice", 0)),
-                            "markPrice": float(pos.get("markPrice", 0)),
-                            "positionSide": pos.get("positionSide", "BOTH"),  # 포지션 방향
-                            "isolated": pos.get("isolated", False)  # isolated/cross 여부
+                            "notional": notional,
+                            "isolatedMargin": isolated_margin,
+                            "marginAsset": pos.get("marginAsset", "USDT"),
+                            "leverage": leverage,
+                            "positionSide": pos.get("positionSide", "BOTH")
                         }
                         
                         active_positions.append(position_info)
