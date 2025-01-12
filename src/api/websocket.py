@@ -5,7 +5,7 @@ import asyncio
 from src.services.websocket_manager import WebSocketManager  # import 경로 수정
 from src.services.binance_service import BinanceService     # import 경로 수정
 from src.utils.logger import logger                         # import 경로 수정
-from src.utils.metrics import metrics                       # import 경로 수정
+from src.utils.metrics import metrics_manager                 # import 경로 수정
 
 router = APIRouter()
 ws_manager = WebSocketManager()
