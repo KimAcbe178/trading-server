@@ -53,8 +53,8 @@ async def startup_event():
     try:
         logger.info("서버 시작 중...")
         
-        # 설정 로드
-        await settings_service.load_settings()
+        # 설정 로드 (메서드 이름 수정)
+        await settings_service._load_settings()  # load_settings를 _load_settings로 변경
         
         # Binance 연결 초기화
         await binance_service.initialize()
@@ -83,8 +83,8 @@ async def shutdown_event():
         # Binance 연결 종료
         await binance_service.cleanup()
         
-        # 설정 저장
-        await settings_service.save_settings()
+        # 설정 저장 (메서드 이름 수정)
+        await settings_service._save_settings()  # save_settings를 _save_settings로 변경
         
         logger.info("서버 정상 종료됨")
         
