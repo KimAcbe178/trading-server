@@ -33,13 +33,11 @@ async def lifespan(app: FastAPI):
         logger.info("서버 시작 중...")
         await settings_service._load_settings()
         await binance_service.initialize()
-        await websocket_manager.initialize()
         logger.info("서버 초기화 완료")
         yield
     finally:
         # Shutdown
         logger.info("서버 종료 중...")
-        await websocket_manager.cleanup()
         await binance_service.cleanup()
         await settings_service._save_settings()
         logger.info("서버 정상 종료됨")
