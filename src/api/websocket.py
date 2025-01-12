@@ -22,6 +22,11 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"Headers: {websocket.headers}")
     logger.info(f"Query params: {websocket.query_params}")
     
+    # CORS preflight 요청 처리
+    if websocket.headers.get("upgrade", "").lower() != "websocket":
+        logger.error("WebSocket upgrade 요청이 아님")
+        return
+        
     try:
         await websocket.accept()
         logger.info("WebSocket 연결 수락됨")
