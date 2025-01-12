@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from src.models.trading import OrderRequest, Position
 from src.services.binance_service import BinanceService
@@ -9,6 +9,7 @@ from src.utils.logger import logger, LoggerMixin
 from src.utils.metrics import metrics
 import psutil
 import asyncio
+from typing import List
 
 # FastAPI 앱 초기화
 app = FastAPI(
@@ -109,16 +110,40 @@ async def update_settings(settings: dict):
         logger.error(f"설정 업데이트 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.websocket("/ws")
-async def websocket_endpoint(websocket):
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
     """웹소켓 엔드포인트"""
+    await websocket.accept()
     await websocket_manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
-            await websocket_manager.broadcast(data)
+            try:
+                data = await websocket.receive_json()
+                # 메시지 타입에 따른 처리
+                if data.get("type") == "subscribe":
+                    symbols = data.get("symbols", [])
+                    await websocket_manager.subscribe(websocket, symbols)
+                elif data.get("type") == "unsubscribe":
+                    symbols = data.get("symbols", [])
+                    await websocket_manager.unsubscribe(websocket, symbols)
+                
+                # 클라이언트에 응답
+                await websocket.send_json({
+                    "type": "response",
+                    "status": "success",
+                    "message": f"Received: {data}"
+                })
+            except WebSocketDisconnect:
+                await websocket_manager.disconnect(websocket)
+                break
+            except Exception as e:
+                logger.error(f"웹소켓 메시지 처리 에러: {e}")
+                await websocket.send_json({
+                    "type": "error",
+                    "message": str(e)
+                })
     except Exception as e:
-        logger.error(f"웹소켓 에러: {e}")
+        logger.error(f"웹소켓 연결 에러: {e}")
     finally:
         await websocket_manager.disconnect(websocket)
 
